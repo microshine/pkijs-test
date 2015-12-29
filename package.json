@@ -1,0 +1,15 @@
+{
+  "name": "pkijs-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "dependencies": {
+    "mocha": "^2.3.4",
+    "node.extend": "^1.1.5"
+  },
+  "author": "msu",
+  "license": ""
+}

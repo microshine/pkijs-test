@@ -1,38 +1,101 @@
 var assert = require("assert");
-var merge = require("node.extend");
+var fs = require("fs");
 var SSL = require("node-webcrypto-ossl").default;
 
+var TEST_DIR = "test";
+var RESOURCE_DIR = TEST_DIR + "/resources";
+
 // var common = require("asn1js/org/pkijs/common");
+var merge = require("node.extend");
+var co = require("co");
+
 var common = require("pkijs/org/pkijs/common");
 var _asn1js = require("asn1js");
 var _pkijs = require("pkijs");
 var _x509schema = require("pkijs/org/pkijs/x509_schema");
-
 var asn1js = merge(true, _asn1js, common);
-
 var x509schema = merge(true, _x509schema, asn1js);
-
 var pkijs_1 = merge(true, _pkijs, asn1js);
+var pkijs_2 = merge(true, pkijs_1, co);
 var org = merge(true, pkijs_1, x509schema).org;
+
+
+function loadCertificate(fileName) {
+    var cert_str = fs.readFileSync(RESOURCE_DIR + "/" + fileName, "utf8");
+    var cert = read_pem_cert(cert_str);
+    assert.equal(cert != null, true, "Can not parse certificate");
+    return cert;
+}
 
 function formatPEM(pem_string) {
     /// <summary>Format string in order to have each line with length equal to 63</summary>
-    /// <param name="pem_string">String to format</param>
-
+    /// <param name="pem_string" type="String">String to format</param>
     var string_length = pem_string.length;
     var result_string = "";
-
     for (var i = 0, count = 0; i < string_length; i++ , count++) {
         if (count > 63) {
             result_string = result_string + "\r\n";
             count = 0;
         }
-
         result_string = result_string + pem_string[i];
     }
-
     return result_string;
 }
+//*********************************************************************************
+function arrayBufferToString(buffer) {
+    /// <summary>Create a string from ArrayBuffer</summary>
+    /// <param name="buffer" type="ArrayBuffer">ArrayBuffer to create a string from</param>
+    var result_string = "";
+    var view = new Uint8Array(buffer);
+    for (var i = 0; i < view.length; i++)
+        result_string = result_string + String.fromCharCode(view[i]);
+    return result_string;
+}
+//*********************************************************************************
+function stringToArrayBuffer(str) {
+    /// <summary>Create an ArrayBuffer from string</summary>
+    /// <param name="str" type="String">String to create ArrayBuffer from</param>
+    var stringLength = str.length;
+    var resultBuffer = new ArrayBuffer(stringLength);
+    var resultView = new Uint8Array(resultBuffer);
+    for (var i = 0; i < stringLength; i++)
+        resultView[i] = str.charCodeAt(i);
+    return resultBuffer;
+}
+
+function read_pem_cert(buf) {
+    var cert_str = buf.toString().replace(/[\r\n]/g, "");
+    var certificateBuffer = pem2ber(cert_str);
+
+    var asn1 = org.pkijs.fromBER(certificateBuffer);
+    var cert_simpl = new org.pkijs.simpl.CERT({ schema: asn1.result });
+    return cert_simpl;
+}
+
+/**
+ * Converts Buffer to ArrayBuffer
+ */
+function b2ab(b) {
+    return new Uint8Array(b).buffer;
+}
+
+/**
+ * Converts PEM to BER
+ */
+function pem2ber(text) {
+    var re = /-----BEGIN [^-]+-----([A-Za-z0-9+\/=\s]+)-----END [^-]+-----|begin-base64[^\n]+\n([A-Za-z0-9+\/=\s]+)====/;
+    var m = re.exec(text);
+    if (m) {
+        if (m[1])
+            text = m[1];
+        else if (m[2])
+            text = m[2];
+        else
+            throw "RegExp out of sync";
+    }
+    var b = new Buffer(text, "base64");
+    return b2ab(b);
+};
 
 describe("Certificate", function () {
 
@@ -56,7 +119,7 @@ describe("Certificate", function () {
             return;
         } 
         // Put a static values
-        cert_simpl.version = 2; 
+        cert_simpl.version = 2;
         cert_simpl.serialNumber = new org.pkijs.asn1.INTEGER({ value: 1 });
         cert_simpl.issuer.types_and_values.push(new org.pkijs.simpl.ATTR_TYPE_AND_VALUE({
             type: "2.5.4.6", // Country name
@@ -133,11 +196,9 @@ describe("Certificate", function () {
             })
             .then(function () {
                 // Encode and store certificate
-                console.log(cert_simpl); 
                 var cert_simpl_encoded = cert_simpl.toSchema(true).toBER(false);
                 var cert_simpl_string = String.fromCharCode.apply(null, new Uint8Array(cert_simpl_encoded));
                 var result_string = "-----BEGIN CERTIFICATE-----\r\n";
-                console.log(new Buffer(cert_simpl_string, "binary").toString("base64"));
                 result_string = result_string + formatPEM(new Buffer(cert_simpl_string, "binary").toString("base64"));
                 result_string = result_string + "\r\n-----END CERTIFICATE-----\r\n";
                 console.log(result_string);
@@ -162,6 +223,64 @@ describe("Certificate", function () {
                 console.error(e.stack);
                 done();
             })
+    })
+
+    it("read PEM", function () {
+        var cert_str = fs.readFileSync(RESOURCE_DIR + "/cert-selfsigned.cer", "utf8");
+        var cert_simpl = read_pem_cert(cert_str);
+        assert.equal(cert_simpl != null, true, "Can not parse certificate");
+    })
+
+    it("verify selfsigned", function (done) {
+        //get certificate from file
+        var cert_str = fs.readFileSync(RESOURCE_DIR + "/cert-selfsigned.cer", "utf8");
+        var cert_simpl = read_pem_cert(cert_str);
+        assert.equal(cert_simpl != null, true, "Can not parse certificate");
+
+        cert_simpl.verify()
+            .then(function (r) {
+                assert.equal(r, true, "Error on selfsigned cert verify");
+            })
+            .then(done, done);
+    })
+
+    it("verify certificate", function (done) {
+        //get certificate from file
+        var ca_str = fs.readFileSync(RESOURCE_DIR + "/cert-ca.cer", "utf8");
+        var ca = read_pem_cert(ca_str);
+        assert.equal(ca != null, true, "Can not parse certificate");
+
+        var root_str = fs.readFileSync(RESOURCE_DIR + "/cert-root.cer", "utf8");
+        var root = read_pem_cert(root_str);
+        assert.equal(root != null, true, "Can not parse certificate");
+
+        ca.verify({
+            issuerCertificate: root
+        })
+            .then(function (r) {
+                assert.equal(r, true, "Error on CA verify by Root certificate");
+            })
+            .then(done, done);
+    })
+
+    it("verify chain", function (done) {
+        var cert = loadCertificate("cert-user.cer");
+        var cert2 = loadCertificate("cert-user2.cer");
+        var ca = loadCertificate("cert-ca.cer");
+        var ca2 = loadCertificate("cert-ca2.cer");
+        var root = loadCertificate("cert-root.cer");
+        var root2 = loadCertificate("cert-root2.cer");
+
+        var chain = new org.pkijs.simpl.CERT_CHAIN({
+            checkDate: new Date(),
+            trusted_certs: [root2],
+            certs: [ca2, cert2, ca]
+        })
+        chain.verify()
+            .then(function (r) {
+                assert.equal(r.result, true, "Error on Chain verify");
+            })
+            .then(done, done);
     })
 
 })

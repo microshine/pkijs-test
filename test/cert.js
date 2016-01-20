@@ -1,7 +1,23 @@
 var assert = require("assert");
 var fs = require("fs");
-var SSL = require("node-webcrypto-ossl").default;
 
+var CRYPTO_OSSL = false;
+
+var SSL;
+if (CRYPTO_OSSL) {
+    // Node.js
+    SSL = new require("node-webcrypto-ossl").default;
+}
+else {
+    // PKCS11
+    PKCS11 = require("node-webcrypto-p11");
+    SSL = new PKCS11({
+        library: "/usr/local/lib/softhsm/libsofthsm2.so",
+        name: "Luna 5",
+        slot: 0,
+        pin: "12345"
+    });
+}
 var TEST_DIR = "test";
 var RESOURCE_DIR = TEST_DIR + "/resources";
 
@@ -105,7 +121,7 @@ describe("Certificate", function () {
 
     it("Create", function (done) {        
         // Initial variables
-        var ssl = new SSL();
+        var ssl = SSL;
         org.pkijs.setEngine("ossl", ssl, ssl.subtle);
         var sequence = Promise.resolve();
         var cert_simpl = new org.pkijs.simpl.CERT();

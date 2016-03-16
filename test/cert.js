@@ -1,7 +1,7 @@
 var assert = require("assert");
 var fs = require("fs");
 
-var CRYPTO_OSSL = false;
+var CRYPTO_OSSL = true;
 
 var SSL;
 if (CRYPTO_OSSL) {
@@ -132,7 +132,6 @@ describe("Certificate", function () {
         var crypto = org.pkijs.getCrypto();
         if (typeof crypto == "undefined") {
             throw new Error("No WebCrypto extension found");
-            return;
         } 
         // Put a static values
         cert_simpl.version = 2;
